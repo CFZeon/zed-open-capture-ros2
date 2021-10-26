@@ -154,11 +154,6 @@ class ZedOpenCaptureNode : public rclcpp::Node
 #else
     cv::Mat frameBGR, left_raw, left_rect, right_raw, right_rect, frameYUV, left_for_matcher, right_for_matcher, left_disp_half,left_disp,left_disp_float, left_disp_vis;
 #endif
-    //////////////////////////////////////////////////////
-    //////////////////////////////////////////////////////
-    ///// only this part should be in timer function /////
-    //////////////////////////////////////////////////////
-    //////////////////////////////////////////////////////
       // ----> Point Cloud
       cv::Mat cloudMat;
       // <---- Point Cloud
@@ -206,7 +201,7 @@ class ZedOpenCaptureNode : public rclcpp::Node
           sl_oc::tools::StopWatch stereo_clock;
           double resize_fact = 1.0;
 #ifdef USE_HALF_SIZE_DISP
-          resize_fact = 0.5;
+          resize_fact = 0.25;
           // Resize the original images to improve performances
           cv::resize(left_rect,  left_for_matcher,  cv::Size(), resize_fact, resize_fact, cv::INTER_AREA);
           cv::resize(right_rect, right_for_matcher, cv::Size(), resize_fact, resize_fact, cv::INTER_AREA);
@@ -234,19 +229,12 @@ class ZedOpenCaptureNode : public rclcpp::Node
           stereoElabInfo << "Stereo processing: " << elapsed << " sec - Freq: " << 1./elapsed;
           // <---- Stereo matching
 
-          // ----> Show frames
-          sl_oc::tools::showImage("Right rect.", right_rect, params.res,true, remapElabInfo.str());
-          sl_oc::tools::showImage("Left rect.", left_rect, params.res,true, remapElabInfo.str());
-          // <---- Show frames
 
           // ----> Show disparity image
           cv::add(left_disp_float,-static_cast<double>(stereoPar.minDisparity-1),left_disp_float); // Minimum disparity offset correction
           cv::multiply(left_disp_float,1./stereoPar.numDisparities,left_disp_image,255., CV_8UC1 ); // Normalization and rescaling
 
-          cv::applyColorMap(left_disp_image,left_disp_image,cv::COLORMAP_JET); // COLORMAP_INFERNO is better, but it's only available starting from OpenCV v4.1.0
-
-          sl_oc::tools::showImage("Disparity", left_disp_image, params.res,true, stereoElabInfo.str());
-          // <---- Show disparity image
+          // cv::applyColorMap(left_disp_image,left_disp_image,cv::COLORMAP_JET); // COLORMAP_INFERNO is better, but it's only available starting from OpenCV v4.1.0
 
           // ----> Extract Depth map
           // The DISPARITY MAP can be now transformed in DEPTH MAP using the formula
@@ -259,7 +247,7 @@ class ZedOpenCaptureNode : public rclcpp::Node
           float central_depth = left_depth_map.getMat(cv::ACCESS_READ).at<float>(left_depth_map.rows/2, left_depth_map.cols/2 );
           std::cout << "Depth of the central pixel: " << central_depth << " mm" << std::endl;
           // <---- Extract Depth map
-
+          
           // ----> Create Point Cloud
           sl_oc::tools::StopWatch pc_clock;
           size_t buf_size = static_cast<size_t>(left_depth_map.cols * left_depth_map.rows);
@@ -282,20 +270,16 @@ class ZedOpenCaptureNode : public rclcpp::Node
             //std::cout << depth << " ";
             if(!isinf(depth) && depth >=0 && depth > stereoPar.minDepth_mm && depth < stereoPar.maxDepth_mm)
             {
-              // buffer[idx].val[2] = depth; // Z
-              // buffer[idx].val[0] = (c-cx)*depth/fx; // X
-              // buffer[idx].val[1] = (r-cy)*depth/fy; // Y
               point.y = -((c-cx)*depth/fx)/1000;
               point.z = -((r-cy)*depth/fy)/1000;
               point.x = depth/1000;
-              // std::cout << depth << std::endl;
+              pcl_cloud.push_back(point);
             }
-            pcl_cloud.push_back(point);
           }
           auto cloud_ptr = pcl_cloud.makeShared();
           pcl::VoxelGrid<pcl::PointXYZ> sor;
           sor.setInputCloud(cloud_ptr);
-          float leaf_size = 0.03;
+          float leaf_size = 0.05;
           sor.setLeafSize (leaf_size, leaf_size, leaf_size);
           sor.filter (*filtered_cloud_ptr);
 
