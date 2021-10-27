@@ -38,6 +38,7 @@
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/io/pcd_io.h>
 
+using namespace std::chrono;
 using namespace std::chrono_literals;
 
 /* This example creates a subclass of Node and uses std::bind() to register a
@@ -137,6 +138,8 @@ class ZedOpenCaptureNode : public rclcpp::Node
   private:
     void timer_callback()
     {
+
+      auto start = high_resolution_clock::now();
       float mult = 0.5;
     #ifdef USE_OCV_TAPI
     cv::UMat frameYUV;  // Full frame side-by-side in YUV 4:2:2 format
@@ -155,10 +158,6 @@ class ZedOpenCaptureNode : public rclcpp::Node
 #else
     cv::Mat frameBGR, left_raw, left_rect, right_raw, right_rect, frameYUV, left_for_matcher, right_for_matcher, left_disp_half,left_disp,left_disp_float, left_disp_vis;
 #endif
-      // ----> Point Cloud
-      cv::Mat cloudMat;
-      // <---- Point Cloud
-
 
       uint64_t last_ts=0; // Used to check new frame arrival
       // Get a new frame from camera
@@ -213,6 +212,13 @@ class ZedOpenCaptureNode : public rclcpp::Node
           // Apply stereo matching
           left_matcher->compute(left_for_matcher, right_for_matcher,left_disp_half);
 
+
+
+          auto stop = high_resolution_clock::now();
+          auto duration = duration_cast<microseconds>(stop - start);
+
+          RCLCPP_INFO(this->get_logger(), "time taken is %ld", duration.count());
+
           left_disp_half.convertTo(left_disp_float,CV_32FC1);
           cv::multiply(left_disp_float,1./16.,left_disp_float); // Last 4 bits of SGBM disparity are decimal
 
@@ -235,7 +241,9 @@ class ZedOpenCaptureNode : public rclcpp::Node
           cv::add(left_disp_float,-static_cast<double>(stereoPar.minDisparity-1),left_disp_float); // Minimum disparity offset correction
           cv::multiply(left_disp_float,1./stereoPar.numDisparities,left_disp_image,255., CV_8UC1 ); // Normalization and rescaling
 
-          // cv::applyColorMap(left_disp_image,left_disp_image,cv::COLORMAP_JET); // COLORMAP_INFERNO is better, but it's only available starting from OpenCV v4.1.0
+          cv::applyColorMap(left_disp_image,left_disp_image,cv::COLORMAP_JET); // COLORMAP_INFERNO is better, but it's only available starting from OpenCV v4.1.0
+          
+          // sl_oc::tools::showImage("Disparity", left_disp_image, params.res,true, stereoElabInfo.str());
 
           // ----> Extract Depth map
           // The DISPARITY MAP can be now transformed in DEPTH MAP using the formula
@@ -260,7 +268,6 @@ class ZedOpenCaptureNode : public rclcpp::Node
           pcl::PointCloud<pcl::PointXYZ> pcl_cloud;
           pcl::PointCloud<pcl::PointXYZ> filtered_cloud;
           auto filtered_cloud_ptr = filtered_cloud.makeShared();
-          // int skip = 10;
 
           for(size_t idx=0; idx<buf_size; idx++)
           {
@@ -269,7 +276,7 @@ class ZedOpenCaptureNode : public rclcpp::Node
             size_t c = idx%left_depth_map.cols;
             double depth = static_cast<double>(depth_vec[idx]);
             //std::cout << depth << " ";
-            if(!isinf(depth) && depth >=0 && depth > stereoPar.minDepth_mm && depth < stereoPar.maxDepth_mm)
+            if(!isinf(depth) && depth >=0 && depth > stereoPar.minDepth_mm/mult && depth < stereoPar.maxDepth_mm/mult)
             {
               point.y = -((c-cx)*depth/fx)/1000 * mult;
               point.z = -((r-cy)*depth/fy)/1000 * mult;
@@ -289,12 +296,6 @@ class ZedOpenCaptureNode : public rclcpp::Node
           ros_cloud.header.frame_id = "zed_cloud";
           ros_cloud.header.stamp = this->get_clock()->now();
           publisher_->publish(ros_cloud);
-          // cloudMat = cv::Mat( left_depth_map.rows, left_depth_map.cols, CV_64FC3, &buffer[0] ).clone();
-        //   std::cout << cloudMat << std::endl;
-          // std::cout << "rows" << left_depth_map.rows << std::endl;
-          // std::cout << "cols" << left_depth_map.cols << std::endl;
-        //   std::cout << "cloudmat size " << cloudMat.size << std::endl;
-          // std::cout << "cloudmat coord " << cloudMat.at<cv::Vec< double, 3>>(360,640) << std::endl;
 
         //   double pc_elapsed = stereo_clock.toc();
           // std::stringstream pcElabInfo;
