@@ -36,8 +36,9 @@
 #include <pcl/common/transforms.h>
 #include <pcl/filters/passthrough.h>
 #include <pcl/filters/voxel_grid.h>
-#include <pcl/filters/grid_minimum.h>
 #include <pcl/io/pcd_io.h>
+
+#include <opencv2/ximgproc/disparity_filter.hpp>
 
 using namespace std::chrono;
 using namespace std::chrono_literals;
@@ -133,13 +134,24 @@ class ZedOpenCaptureNode : public rclcpp::Node
     left_matcher->setSpeckleWindowSize(stereoPar.speckleWindowSize);
     left_matcher->setSpeckleRange(stereoPar.speckleRange);
 
+    // right_matcher->setMinDisparity(stereoPar.minDisparity);
+    // right_matcher->setNumDisparities(stereoPar.numDisparities);
+    // right_matcher->setBlockSize(stereoPar.blockSize);
+    // right_matcher->setP1(stereoPar.P1);
+    // right_matcher->setP2(stereoPar.P2);
+    // right_matcher->setDisp12MaxDiff(stereoPar.disp12MaxDiff);
+    // right_matcher->setMode(stereoPar.mode);
+    // right_matcher->setPreFilterCap(stereoPar.preFilterCap);
+    // right_matcher->setUniquenessRatio(stereoPar.uniquenessRatio);
+    // right_matcher->setSpeckleWindowSize(stereoPar.speckleWindowSize);
+    // right_matcher->setSpeckleRange(stereoPar.speckleRange);
+
     stereoPar.print();
     }
 
   private:
     void timer_callback()
     {
-
       auto start = high_resolution_clock::now();
       float mult = 1;
     #ifdef USE_OCV_TAPI
@@ -152,6 +164,7 @@ class ZedOpenCaptureNode : public rclcpp::Node
     cv::UMat left_for_matcher(cv::USAGE_ALLOCATE_DEVICE_MEMORY); // Left image for the stereo matcher
     cv::UMat right_for_matcher(cv::USAGE_ALLOCATE_DEVICE_MEMORY); // Right image for the stereo matcher
     cv::UMat left_disp_half(cv::USAGE_ALLOCATE_DEVICE_MEMORY); // Half sized disparity map
+    cv::UMat right_disp_half(cv::USAGE_ALLOCATE_DEVICE_MEMORY); // Half sized disparity map
     cv::UMat left_disp(cv::USAGE_ALLOCATE_DEVICE_MEMORY); // Full output disparity
     cv::UMat left_disp_float(cv::USAGE_ALLOCATE_DEVICE_MEMORY); // Final disparity map in float32
     cv::UMat left_disp_image(cv::USAGE_ALLOCATE_DEVICE_MEMORY); // Normalized and color remapped disparity map to be displayed
@@ -210,10 +223,19 @@ class ZedOpenCaptureNode : public rclcpp::Node
           left_for_matcher = left_rect; // No data copy
           right_for_matcher = right_rect; // No data copy
 #endif
+          auto wls_filter = cv::ximgproc::createDisparityWLSFilter(left_matcher);
+          auto right_matcher = cv::ximgproc::createRightMatcher(left_matcher);
+
           // Apply stereo matching
-          left_matcher->compute(left_for_matcher, right_for_matcher,left_disp_half);
+          left_matcher->compute(left_for_matcher, right_for_matcher, left_disp_half);
+          right_matcher->compute(right_for_matcher, left_for_matcher, right_disp_half);
 
-
+          float lambda = 8000;
+          float sigma = 1.4;
+          wls_filter->setLambda(lambda);
+          wls_filter->setSigmaColor(sigma);
+          cv::Mat filtered_disp;
+          // wls_filter->filter(left_disp_half, left_rect, left_disp_half, right_disp_half);
 
           auto stop = high_resolution_clock::now();
           auto duration = duration_cast<microseconds>(stop - start);
@@ -286,11 +308,10 @@ class ZedOpenCaptureNode : public rclcpp::Node
             }
           }
           auto cloud_ptr = pcl_cloud.makeShared();
-          float grid_resolution = 0.03;
-          auto sor = pcl::GridMinimum<pcl::PointXYZ>(grid_resolution);
+          pcl::VoxelGrid<pcl::PointXYZ> sor;
           sor.setInputCloud(cloud_ptr);
-          // float leaf_size = 0.03;
-          // sor.setLeafSize (leaf_size, leaf_size, leaf_size);
+          float leaf_size = 0.03;
+          sor.setLeafSize (leaf_size, leaf_size, leaf_size);
           sor.filter (*filtered_cloud_ptr);
 
           sensor_msgs::msg::PointCloud2 ros_cloud;
@@ -310,6 +331,7 @@ class ZedOpenCaptureNode : public rclcpp::Node
     cv::Mat map_right_x, map_right_y;
     cv::Mat cameraMatrix_left, cameraMatrix_right;
     cv::Ptr<cv::StereoSGBM> left_matcher = cv::StereoSGBM::create(stereoPar.minDisparity,stereoPar.numDisparities,stereoPar.blockSize);
+    cv::Ptr<cv::StereoSGBM> right_matcher = cv::StereoSGBM::create(stereoPar.minDisparity,stereoPar.numDisparities,stereoPar.blockSize);
 
 #ifdef USE_OCV_TAPI
     cv::UMat map_left_x_gpu;
