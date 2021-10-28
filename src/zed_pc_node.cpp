@@ -36,7 +36,6 @@
 #include <pcl/common/transforms.h>
 #include <pcl/filters/passthrough.h>
 #include <pcl/filters/voxel_grid.h>
-#include <pcl/filters/grid_minimum.h>
 #include <pcl/io/pcd_io.h>
 
 using namespace std::chrono;
@@ -286,11 +285,10 @@ class ZedOpenCaptureNode : public rclcpp::Node
             }
           }
           auto cloud_ptr = pcl_cloud.makeShared();
-          float grid_resolution = 0.03;
-          auto sor = pcl::GridMinimum<pcl::PointXYZ>(grid_resolution);
+          pcl::VoxelGrid<pcl::PointXYZ> sor;
           sor.setInputCloud(cloud_ptr);
-          // float leaf_size = 0.03;
-          // sor.setLeafSize (leaf_size, leaf_size, leaf_size);
+          float leaf_size = 0.03;
+          sor.setLeafSize (leaf_size, leaf_size, leaf_size);
           sor.filter (*filtered_cloud_ptr);
 
           sensor_msgs::msg::PointCloud2 ros_cloud;
